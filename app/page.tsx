@@ -278,6 +278,25 @@ export default function Home() {
 
   useEffect(() => {
     setIsClient(true);
+    
+    // Load saved progress from localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        const savedProgress = localStorage.getItem('workoutProgress');
+        if (savedProgress) {
+          const progress = JSON.parse(savedProgress);
+          setTotalPoints(progress.totalPoints || 0);
+          setCurrentRank(progress.currentRank || 0);
+          setCompletedWorkouts(new Set(progress.completedWorkouts || []));
+        }
+      } catch (error) {
+        console.error('Error loading saved progress:', error);
+        // Reset to default state if there's an error
+        setTotalPoints(0);
+        setCurrentRank(0);
+        setCompletedWorkouts(new Set());
+      }
+    }
   }, []);
 
   const currentRankData = ranks[currentRank];
@@ -290,6 +309,45 @@ export default function Home() {
     setCurrentExercise(0);
     setExerciseProgress(0);
   };
+
+  const saveProgress = () => {
+    if (typeof window !== 'undefined') {
+      try {
+        const progress = {
+          totalPoints,
+          currentRank,
+          completedWorkouts: Array.from(completedWorkouts)
+        };
+        localStorage.setItem('workoutProgress', JSON.stringify(progress));
+      } catch (error) {
+        console.error('Error saving progress:', error);
+      }
+    }
+  };
+
+  const resetProgress = () => {
+    setTotalPoints(0);
+    setCurrentRank(0);
+    setCompletedWorkouts(new Set());
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('workoutProgress');
+      } catch (error) {
+        console.error('Error resetting progress:', error);
+      }
+    }
+  };
+
+  // Save progress whenever key state changes
+  useEffect(() => {
+    if (isClient) {
+      try {
+        saveProgress();
+      } catch (error) {
+        console.error('Error in progress saving effect:', error);
+      }
+    }
+  }, [totalPoints, currentRank, completedWorkouts, isClient]);
 
   const completeWorkout = () => {
     if (selectedWorkout) {
@@ -306,6 +364,11 @@ export default function Home() {
       if (targetRankIndex > currentRank) {
         setCurrentRank(targetRankIndex);
       }
+      
+      // Save progress after completing workout
+      setTimeout(() => {
+        saveProgress();
+      }, 0);
     }
     setIsWorkoutActive(false);
     setSelectedWorkout(null);
@@ -410,9 +473,15 @@ export default function Home() {
             <h1 className="text-5xl md:text-6xl font-bold text-white mb-6 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
               Workout: Ranked
             </h1>
-            <p className="text-xl text-gray-300 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-xl text-gray-300 max-w-2xl mx-auto leading-relaxed mb-8">
               Progress through tiers, unlock achievements, and dominate your goals.
             </p>
+            <button
+              onClick={resetProgress}
+              className="bg-gradient-to-r from-red-500 to-red-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:shadow-lg transition-all duration-300 hover:scale-105 border border-white/100"
+            >
+              Reset Progress
+            </button>
           </div>
 
           {/* Rank Display Card */}
