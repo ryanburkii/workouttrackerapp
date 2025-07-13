@@ -272,6 +272,9 @@ export default function Home() {
   const [currentExercise, setCurrentExercise] = useState(0);
   const [exerciseProgress, setExerciseProgress] = useState(0);
   const [isClient, setIsClient] = useState(false);
+  const [hoveredTier, setHoveredTier] = useState<string | null>(null);
+  const [hoveredCard, setHoveredCard] = useState<string | null>(null);
+  const [completedWorkouts, setCompletedWorkouts] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setIsClient(true);
@@ -290,16 +293,56 @@ export default function Home() {
 
   const completeWorkout = () => {
     if (selectedWorkout) {
-      setTotalPoints(prev => prev + selectedWorkout.points);
+      const newTotalPoints = totalPoints + selectedWorkout.points;
+      setTotalPoints(newTotalPoints);
+      
+      // Track completed workout
+      setCompletedWorkouts(prev => new Set([...prev, selectedWorkout.id]));
       
       // Check if user should rank up
-      const newRank = ranks.findIndex(rank => totalPoints + selectedWorkout.points < rank.points);
-      if (newRank > currentRank) {
-        setCurrentRank(newRank);
+      const newRankIndex = ranks.findIndex(rank => newTotalPoints < rank.points);
+      const targetRankIndex = newRankIndex === -1 ? ranks.length - 1 : Math.max(0, newRankIndex - 1);
+      
+      if (targetRankIndex > currentRank) {
+        setCurrentRank(targetRankIndex);
       }
     }
     setIsWorkoutActive(false);
     setSelectedWorkout(null);
+  };
+
+  const getNextRecommendedWorkout = (tierWorkouts: Workout[]) => {
+    // Find the first uncompleted workout in this tier
+    for (const workout of tierWorkouts) {
+      if (!completedWorkouts.has(workout.id)) {
+        return workout;
+      }
+    }
+    // If all workouts in tier are completed, return the last one
+    return tierWorkouts[tierWorkouts.length - 1];
+  };
+
+  const isWorkoutUnlocked = (workout: Workout, tierWorkouts: Workout[]) => {
+    // First workout in tier is always unlocked
+    if (workout.id === tierWorkouts[0].id) {
+      return true;
+    }
+    
+    // Find the previous workout in the tier
+    const workoutIndex = tierWorkouts.findIndex(w => w.id === workout.id);
+    if (workoutIndex <= 0) return true;
+    
+    const previousWorkout = tierWorkouts[workoutIndex - 1];
+    return completedWorkouts.has(previousWorkout.id);
+  };
+
+  const isRankTierUnlocked = (tierIndex: number) => {
+    // Bronze tier (index 0) is always unlocked
+    if (tierIndex === 0) return true;
+    
+    // Check if all workouts in the previous tier are completed
+    const previousTier = rankTiers[tierIndex - 1];
+    return previousTier.workouts.every(workout => completedWorkouts.has(workout.id));
   };
 
   const getRankColor = (rank: string) => {
@@ -310,6 +353,41 @@ export default function Home() {
   const getRankDisplayName = (rank: string) => {
     const rankData = ranks.find(r => r.name.toLowerCase().replace(' ', '-') === rank);
     return rankData?.name || rank.charAt(0).toUpperCase() + rank.slice(1);
+  };
+
+  const getCardStyle = (index: number, tierName: string, totalCards: number, cardId: string) => {
+    const isTierHovered = hoveredTier === tierName;
+    const isCardHovered = hoveredCard === cardId;
+    
+    if (isTierHovered || isCardHovered) {
+      // Vertical fan out effect - spread cards up and down
+      const spread = 60; // How far cards spread apart vertically
+      const horizontalOffset = 20; // Slight horizontal offset for visual interest
+      
+      // Calculate position based on index
+      const verticalOffset = (index - (totalCards - 1) / 2) * spread;
+      const horizontalPosition = index * 4; // Slight horizontal stacking
+      
+      // If this specific card is hovered, bring it to foreground
+      const zIndex = isCardHovered ? 1000 : totalCards - index;
+      
+      return {
+        top: `${verticalOffset}px`,
+        left: `${horizontalPosition}px`,
+        transform: 'rotate(0deg)',
+        transition: 'all 0.4s ease-out',
+        zIndex: zIndex,
+      };
+    } else {
+      // Stacked position
+      return {
+        top: `${index * 12}px`,
+        left: `${index * 6}px`,
+        transform: 'rotate(0deg)',
+        transition: 'all 0.4s ease-out',
+        zIndex: totalCards - index,
+      };
+    }
   };
 
   if (!isClient) {
@@ -368,70 +446,133 @@ export default function Home() {
           {/* Rank Card Stacks */}
           {!isWorkoutActive && (
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-12">
-              {rankTiers.map((tier, tierIndex) => (
-                <div key={tier.name} className="relative group">
-                  {/* Rank Tier Header */}
-                  <div className="text-center mb-8">
-                    <div className={`inline-block bg-gradient-to-r ${tier.metallic} text-white px-8 py-4 rounded-2xl text-xl font-bold mb-4 shadow-2xl border border-white/100 relative`}>
-                      <div className="relative z-10 drop-shadow-lg">{tier.name} Tier</div>
-                    </div>
-                    <p className="text-gray-400 text-sm">
-                      {tier.workouts.length} levels available
-                    </p>
-                  </div>
-
-                  {/* Card Stack */}
-                  <div className="relative">
-                    {tier.workouts.map((workout, index) => (
-                      <div
-                        key={workout.id}
-                        className={`absolute w-full bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-6 hover:bg-white/20 transition-all duration-500 cursor-pointer transform hover:scale-105 hover:shadow-2xl ${
-                          index === 0 ? 'z-30' : index === 1 ? 'z-20' : 'z-10'
-                        }`}
-                        style={{
-                          top: `${index * 12}px`,
-                          left: `${index * 6}px`,
-                          transform: `rotate(${index * 1.5}deg)`,
-                        }}
-                        onClick={() => startWorkout(workout)}
-                      >
-                        {/* Rank Badge */}
-                        <div className={`inline-block bg-gradient-to-r ${getRankColor(workout.difficulty)} text-white px-4 py-2 rounded-xl text-sm font-bold mb-4 shadow-xl border border-white/100 relative`}>
-                          <div className="relative z-10 drop-shadow-md">{getRankDisplayName(workout.difficulty)}</div>
-                        </div>
-                        
-                        {/* Workout Info */}
-                        <h3 className="text-xl font-bold text-white mb-3">
-                          {workout.name}
-                        </h3>
-                        <p className="text-gray-300 mb-4">
-                          {workout.exercises.length} exercises • {workout.points} points
-                        </p>
-                        
-                        {/* Exercise Preview */}
-                        <div className="space-y-3">
-                          {workout.exercises.slice(0, 2).map((exercise) => (
-                            <div key={exercise.id} className="flex justify-between text-sm">
-                              <span className="text-gray-300">{exercise.name}</span>
-                              <span className="text-white font-medium">
-                                {exercise.sets}×{exercise.reps}
-                              </span>
-                            </div>
-                          ))}
-                          {workout.exercises.length > 2 && (
-                            <div className="text-sm text-gray-400">
-                              +{workout.exercises.length - 2} more exercises
-                            </div>
-                          )}
-                        </div>
+              {rankTiers.map((tier, tierIndex) => {
+                const isTierUnlocked = isRankTierUnlocked(tierIndex);
+                
+                return (
+                  <div 
+                    key={tier.name} 
+                    className={`relative group ${!isTierUnlocked ? 'opacity-50' : ''}`}
+                    onMouseEnter={() => isTierUnlocked && setHoveredTier(tier.name)}
+                    onMouseLeave={() => isTierUnlocked && setHoveredTier(null)}
+                  >
+                    {/* Rank Tier Header */}
+                    <div className="text-center mb-8">
+                      <div className={`inline-block bg-gradient-to-r ${tier.metallic} text-white px-8 py-4 rounded-2xl text-xl font-bold mb-4 shadow-2xl border border-white/100 relative`}>
+                        <div className="relative z-10 drop-shadow-lg">{tier.name} Tier</div>
                       </div>
-                    ))}
-                    
-                    {/* Stack Base */}
-                    <div className="w-full h-72 bg-white/5 border border-white/10 rounded-2xl"></div>
+                      <p className="text-gray-400 text-sm">
+                        {tier.workouts.length} levels available
+                      </p>
+                      {!isTierUnlocked && (
+                        <p className="text-red-400 text-sm mt-2">
+                          Complete previous tier to unlock
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Card Stack */}
+                    <div className="relative h-72">
+                      {(() => {
+                        const recommendedWorkout = getNextRecommendedWorkout(tier.workouts);
+                        const sortedWorkouts = [
+                          recommendedWorkout,
+                          ...tier.workouts.filter(w => w.id !== recommendedWorkout.id)
+                        ];
+                        
+                        return sortedWorkouts.map((workout, index) => {
+                          const isCompleted = completedWorkouts.has(workout.id);
+                          const isRecommended = workout.id === recommendedWorkout.id;
+                          const isUnlocked = isTierUnlocked && isWorkoutUnlocked(workout, tier.workouts);
+                          
+                          return (
+                            <div
+                              key={workout.id}
+                              className={`absolute w-full border rounded-2xl p-6 transition-all duration-500 transform ${
+                                !isUnlocked
+                                  ? 'bg-gray-800 border-gray-600 cursor-not-allowed'
+                                  : isCompleted 
+                                    ? 'bg-green-500/20 border-green-400/40 hover:bg-white/20 cursor-pointer hover:scale-105 hover:shadow-2xl backdrop-blur-xl' 
+                                    : isRecommended 
+                                      ? 'bg-white/15 border-white/30 hover:bg-white/20 cursor-pointer hover:scale-105 hover:shadow-2xl backdrop-blur-xl' 
+                                      : 'bg-white/10 border-white/20 hover:bg-white/20 cursor-pointer hover:scale-105 hover:shadow-2xl backdrop-blur-xl'
+                              }`}
+                              style={getCardStyle(index, tier.name, tier.workouts.length, workout.id)}
+                              onClick={() => isUnlocked && startWorkout(workout)}
+                              onMouseEnter={() => isUnlocked && setHoveredCard(workout.id)}
+                              onMouseLeave={() => isUnlocked && setHoveredCard(null)}
+                            >
+                              {/* Rank Badge */}
+                              <div className={`inline-block bg-gradient-to-r ${getRankColor(workout.difficulty)} text-white px-4 py-2 rounded-xl text-sm font-bold mb-4 shadow-xl border border-white/100 relative`}>
+                                <div className="relative z-10 drop-shadow-md">{getRankDisplayName(workout.difficulty)}</div>
+                              </div>
+                              
+                              {/* Lock Icon for locked workouts */}
+                              {!isUnlocked && (
+                                <div className="absolute top-4 right-4">
+                                  <div className="bg-gray-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold">
+                                    🔒
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Completion Status */}
+                              {isCompleted && (
+                                <div className="absolute top-4 right-4">
+                                  <div className="bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold">
+                                    ✓
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Recommended Badge */}
+                              {isRecommended && !isCompleted && isUnlocked && (
+                                <div className="absolute top-4 right-4">
+                                  <div className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold">
+                                    →
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Workout Info */}
+                              <h3 className={`text-xl font-bold mb-3 ${
+                                !isUnlocked ? 'text-gray-400' : 'text-white'
+                              }`}>
+                                {workout.name}
+                              </h3>
+                              <p className={`mb-4 ${
+                                !isUnlocked ? 'text-gray-500' : 'text-gray-300'
+                              }`}>
+                                {workout.exercises.length} exercises • {workout.points} points
+                              </p>
+                              
+                              {/* Exercise Preview */}
+                              <div className="space-y-3">
+                                {workout.exercises.slice(0, 2).map((exercise) => (
+                                  <div key={exercise.id} className="flex justify-between text-sm">
+                                    <span className={!isUnlocked ? 'text-gray-500' : 'text-gray-300'}>{exercise.name}</span>
+                                    <span className={!isUnlocked ? 'text-gray-500' : 'text-white font-medium'}>
+                                      {exercise.sets}×{exercise.reps}
+                                    </span>
+                                  </div>
+                                ))}
+                                {workout.exercises.length > 2 && (
+                                  <div className={`text-sm ${!isUnlocked ? 'text-gray-600' : 'text-gray-400'}`}>
+                                    +{workout.exercises.length - 2} more exercises
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                      
+                      {/* Stack Base */}
+                      <div className={`absolute inset-0 bg-white/5 border border-white/10 rounded-2xl transition-opacity duration-500 ${hoveredTier === tier.name ? 'opacity-0' : 'opacity-100'}`}></div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -463,13 +604,13 @@ export default function Home() {
                     <div className="flex justify-center space-x-6">
                       <button
                         onClick={() => setCurrentExercise(prev => prev + 1)}
-                        className="bg-gradient-to-r from-green-500 to-green-600 text-white px-8 py-4 rounded-2xl font-bold text-lg hover:shadow-lg transition-all duration-300 hover:scale-105"
+                        className="bg-gradient-to-r from-green-500 to-green-600 text-white px-8 py-4 rounded-2xl font-bold text-lg hover:shadow-lg transition-all duration-300 hover:scale-105 border border-white/100"
                       >
                         Complete Exercise
                       </button>
                       <button
                         onClick={() => setIsWorkoutActive(false)}
-                        className="bg-gradient-to-r from-red-500 to-red-600 text-white px-8 py-4 rounded-2xl font-bold text-lg hover:shadow-lg transition-all duration-300 hover:scale-105"
+                        className="bg-gradient-to-r from-red-500 to-red-600 text-white px-8 py-4 rounded-2xl font-bold text-lg hover:shadow-lg transition-all duration-300 hover:scale-105 border border-white/100"
                       >
                         Quit Workout
                       </button>
